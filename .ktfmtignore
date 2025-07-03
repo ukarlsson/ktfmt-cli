@@ -1,0 +1,8 @@
+# Ignore ktfmt source code directory
+ktfmt/**
+app/**
+# Ignore build directories
+build/**
+**/build/**
+# Ignore gradle wrapper
+gradle/**
