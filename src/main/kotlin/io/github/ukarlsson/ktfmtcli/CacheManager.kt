@@ -1,8 +1,10 @@
 package io.github.ukarlsson.ktfmtcli
 
+import com.facebook.ktfmt.format.FormattingOptions
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import org.apache.commons.codec.digest.MurmurHash3
 
 class CacheManager(private val cacheFile: Path) {
 
@@ -47,12 +49,13 @@ class CacheManager(private val cacheFile: Path) {
     }
   }
 
-  fun calculateHash(file: Path): Int = Files.readAllBytes(file).contentHashCode()
+  fun calculateHash(file: Path, options: FormattingOptions): Int =
+    MurmurHash3.hash32x86(options.toString().toByteArray() + Files.readAllBytes(file))
 
-  fun shouldSkipFile(file: Path, cache: Map<Path, Int>): Boolean {
+  fun shouldSkipFile(file: Path, cache: Map<Path, Int>, options: FormattingOptions): Boolean {
     val cachedHash = cache[file.toAbsolutePath().normalize()] ?: return false
     return try {
-      val currentHash = calculateHash(file)
+      val currentHash = calculateHash(file, options)
       currentHash == cachedHash
     } catch (e: java.io.IOException) {
       // If we can't read the file, don't skip it

@@ -131,3 +131,97 @@ import kotlin.system.exitProcess
 exitProcess(1)
 ```
 
+## Formatting
+
+**ALWAYS use Gradle for formatting - NEVER use the ktfmt-cli command line tool**
+
+### Why ALWAYS use Gradle:
+- The ktfmt-cli is the product we're developing, not a tool for development
+- Gradle ktfmt plugin ensures consistent formatting with project configuration
+- Prevents confusion between testing the CLI and using it for development
+- Avoids circular dependency issues
+
+### What to use:
+```bash
+# ALWAYS use Gradle for formatting
+./gradlew ktfmtFormat
+
+# To check formatting
+./gradlew ktfmtCheck
+
+# Build includes formatting check
+./gradlew build
+```
+
+### What NOT to use:
+```bash
+# ❌ NEVER use this for development
+./ktfmt-cli --write
+```
+
+## Filesystem Usage
+
+**NEVER use `Paths.get()` - always use `fileSystem.getPath()` when available**
+
+### Why fileSystem.getPath() is better:
+- Ensures consistent filesystem usage (especially important for tests using Jimfs)
+- Prevents bugs where different filesystem instances are used
+- Makes code testable with in-memory filesystems
+- Avoids issues where cache files are written to one filesystem but read from another
+
+### Examples:
+
+**❌ BAD - Using default filesystem:**
+```kotlin
+val cacheManager = cacheLocation?.let { CacheManager(Paths.get(it)) }
+```
+
+**✅ GOOD - Using provided filesystem:**
+```kotlin
+val cacheManager = cacheLocation?.let { CacheManager(fileSystem.getPath(it)) }
+```
+
+### When to use each:
+- Use `fileSystem.getPath()` when you have access to a FileSystem instance (e.g., in App class)
+- Only use `Paths.get()` in main functions or when no FileSystem instance is available
+- Always prefer dependency injection of FileSystem for testability (i.e. through Jimfs in tests)
+
+## Release Process
+
+**Update version in `gradle.properties`, not `build.gradle.kts`**
+
+### Why use gradle.properties:
+- Configuration cache compatible with provider API
+- Separates version configuration from build logic
+- Reduces configuration cache invalidation
+- Follows Gradle best practices
+
+### Pre-release checklist:
+1. **ALWAYS run formatting BEFORE releasing**:
+   ```bash
+   ./gradlew ktfmtFormat
+   ```
+2. **Run tests**:
+   ```bash
+   ./gradlew test
+   ```
+3. **Update version in gradle.properties**
+4. **Build and verify**:
+   ```bash
+   ./gradlew clean build
+   ```
+
+### Version configuration in build.gradle.kts:
+```kotlin
+// ✅ GOOD - Configuration cache compatible
+val cliVersion = providers.gradleProperty("cliVersion")
+val ktfmtVersion = providers.gradleProperty("ktfmtVersion")
+val fullVersion = cliVersion.zip(ktfmtVersion) { cli, ktfmt -> "$cli-ktfmt$ktfmt" }
+
+// ❌ BAD - Not configuration cache compatible
+val cliVersion: String by project
+val ktfmtVersion = "0.53" // hardcoded
+```
+
+For detailed release steps, see @RELEASE.md
+

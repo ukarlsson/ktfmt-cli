@@ -1,5 +1,6 @@
 package io.github.ukarlsson.ktfmtcli
 
+import com.facebook.ktfmt.format.FormattingOptions
 import com.google.common.jimfs.Configuration
 import com.google.common.jimfs.Jimfs
 import io.kotest.core.spec.style.StringSpec
@@ -13,6 +14,15 @@ import java.nio.file.Path
 class CacheManagerTest :
   StringSpec({
     fun createTestFileSystem() = Jimfs.newFileSystem(Configuration.unix())
+
+    val defaultOptions =
+      FormattingOptions(
+        blockIndent = 2,
+        continuationIndent = 4,
+        maxWidth = 100,
+        removeUnusedImports = true,
+        manageTrailingCommas = false,
+      )
 
     "should return empty cache when cache file doesn't exist" {
       val fs = createTestFileSystem()
@@ -144,8 +154,8 @@ class CacheManagerTest :
       Files.write(testFile, "fun main() {}\n".toByteArray())
 
       val cacheManager = CacheManager(cacheFile)
-      val hash1 = cacheManager.calculateHash(testFile)
-      val hash2 = cacheManager.calculateHash(testFile)
+      val hash1 = cacheManager.calculateHash(testFile, defaultOptions)
+      val hash2 = cacheManager.calculateHash(testFile, defaultOptions)
 
       hash1 shouldBe hash2
       hash1 shouldNotBe 0
@@ -159,11 +169,11 @@ class CacheManagerTest :
       Files.write(testFile, "fun main() {}\n".toByteArray())
 
       val cacheManager = CacheManager(cacheFile)
-      val hash1 = cacheManager.calculateHash(testFile)
+      val hash1 = cacheManager.calculateHash(testFile, defaultOptions)
 
       // Modify file
       Files.write(testFile, "fun main() { println(\"Hello\") }\n".toByteArray())
-      val hash2 = cacheManager.calculateHash(testFile)
+      val hash2 = cacheManager.calculateHash(testFile, defaultOptions)
 
       hash1 shouldNotBe hash2
     }
@@ -176,10 +186,10 @@ class CacheManagerTest :
       Files.write(testFile, "fun main() {}\n".toByteArray())
 
       val cacheManager = CacheManager(cacheFile)
-      val currentHash = cacheManager.calculateHash(testFile)
+      val currentHash = cacheManager.calculateHash(testFile, defaultOptions)
       val cache = mapOf(testFile.toAbsolutePath().normalize() to currentHash)
 
-      cacheManager.shouldSkipFile(testFile, cache) shouldBe true
+      cacheManager.shouldSkipFile(testFile, cache, defaultOptions) shouldBe true
     }
 
     "should not skip file when hash doesn't match cache" {
@@ -192,7 +202,7 @@ class CacheManagerTest :
       val cacheManager = CacheManager(cacheFile)
       val cache = mapOf(testFile.toAbsolutePath().normalize() to 999999) // Wrong hash
 
-      cacheManager.shouldSkipFile(testFile, cache) shouldBe false
+      cacheManager.shouldSkipFile(testFile, cache, defaultOptions) shouldBe false
     }
 
     "should not skip file when not in cache" {
@@ -205,7 +215,7 @@ class CacheManagerTest :
       val cacheManager = CacheManager(cacheFile)
       val cache = emptyMap<Path, Int>()
 
-      cacheManager.shouldSkipFile(testFile, cache) shouldBe false
+      cacheManager.shouldSkipFile(testFile, cache, defaultOptions) shouldBe false
     }
 
     "should not skip file when file cannot be read" {
@@ -216,6 +226,6 @@ class CacheManagerTest :
       val cacheManager = CacheManager(cacheFile)
       val cache = mapOf(testFile.toAbsolutePath().normalize() to 123456)
 
-      cacheManager.shouldSkipFile(testFile, cache) shouldBe false
+      cacheManager.shouldSkipFile(testFile, cache, defaultOptions) shouldBe false
     }
   })

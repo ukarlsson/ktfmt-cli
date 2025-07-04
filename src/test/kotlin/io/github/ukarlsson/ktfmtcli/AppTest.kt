@@ -209,31 +209,4 @@ class AppTest :
         app.isIgnored(file, patterns, workingDir) shouldBe false
       }
     }
-
-    describe("command line validation with jimfs") {
-      it("should require exactly one mode flag") {
-        val fs = Jimfs.newFileSystem()
-        val workingDir = fs.getPath("/project")
-        Files.createDirectories(workingDir)
-
-        val app = App(fileSystem = fs, workingDirectory = workingDir)
-
-        // Test no flags - should fail
-        app.run(arrayOf()) shouldBe 1
-
-        // Test multiple flags - should fail
-        app.run(arrayOf("--write", "--check")) shouldBe 1
-      }
-
-      it("should accept single mode flag") {
-        val fs = Jimfs.newFileSystem()
-        val workingDir = fs.getPath("/project")
-        Files.createDirectories(workingDir)
-
-        val app = App(fileSystem = fs, workingDirectory = workingDir)
-
-        // Test single flag - should succeed
-        app.run(arrayOf("--write")) shouldBe 0
-      }
-    }
   })

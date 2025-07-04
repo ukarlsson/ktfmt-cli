@@ -2,4 +2,4 @@
 DIR="$(dirname "$0")"
 JAR=$(ls "$DIR"/build/libs/ktfmt-cli-*-ktfmt*.jar 2>/dev/null | head -1)
 [[ -z "$JAR" ]] && { echo "Error: ktfmt-cli jar not found" >&2; exit 1; }
-exec java -jar "$JAR" "$@"
+exec java -jar "$JAR" "${@}"

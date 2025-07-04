@@ -2,6 +2,16 @@ package io.github.ukarlsson.ktfmtcli
 
 import com.facebook.ktfmt.format.Formatter
 import com.facebook.ktfmt.format.FormattingOptions
+import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.parameters.arguments.argument
+import com.github.ajalt.clikt.parameters.arguments.multiple
+import com.github.ajalt.clikt.parameters.options.default
+import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.options.help
+import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.options.switch
+import com.github.ajalt.clikt.parameters.types.choice
+import com.github.ajalt.clikt.parameters.types.int
 import java.nio.file.FileSystem
 import java.nio.file.FileSystems
 import java.nio.file.FileVisitResult
@@ -12,109 +22,167 @@ import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.Properties
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.system.exitProcess
 import kotlin.time.measureTimedValue
-import kotlinx.cli.*
 
 class KtfmtCliException(message: String) : Exception(message)
+
+sealed interface FormattingResult {
+  val allFiles: List<Path>
+  val skippedFiles: List<Path>
+  val cacheUpdates: Map<Path, Int>
+
+  data class WriteResult(
+    override val allFiles: List<Path>,
+    val formattedFiles: List<Path>,
+    override val skippedFiles: List<Path>,
+    override val cacheUpdates: Map<Path, Int>,
+  ) : FormattingResult
+
+  data class CheckResult(
+    override val allFiles: List<Path>,
+    val filesNeedingFormatting: List<Path>,
+    override val skippedFiles: List<Path>,
+    override val cacheUpdates: Map<Path, Int>,
+  ) : FormattingResult
+}
 
 class App(
   private val fileSystem: FileSystem = FileSystems.getDefault(),
   private val workingDirectory: Path = Paths.get("").toAbsolutePath(),
-) {
+) : CliktCommand(name = "ktfmt-cli", help = "A command-line interface for ktfmt, the Kotlin code formatter") {
 
-  fun run(args: Array<String>): Int {
-    val parser = ArgParser("ktfmt-cli")
+  // Command line options
+  private val style by
+    option("--style")
+      .choice("meta", "google", "kotlinlang")
+      .default("meta")
+      .help("Formatting style: meta (default), google, or kotlinlang")
 
-    val style by
-      parser
-        .option(ArgType.String, description = "Formatting style: meta (default), google, or kotlinlang")
-        .default("meta")
-    val maxWidth by
-      parser
-        .option(ArgType.Int, fullName = "max-width", shortName = "w", description = "Maximum line width")
-        .default(100)
-    val blockIndent by
-      parser.option(
-        ArgType.Int,
-        fullName = "block-indent",
-        description = "Block indent size in spaces (overrides style default)",
-      )
-    val continuationIndent by
-      parser.option(
-        ArgType.Int,
-        fullName = "continuation-indent",
-        description = "Continuation indent size in spaces (overrides style default)",
-      )
-    val removeUnusedImports by
-      parser
-        .option(ArgType.Boolean, fullName = "remove-unused-imports", description = "Remove unused imports")
-        .default(true)
-    val manageTrailingCommas by
-      parser.option(
-        ArgType.Boolean,
-        fullName = "manage-trailing-commas",
-        description = "Automatically add/remove trailing commas (defaults based on style)",
-      )
+  private val maxWidth by option("--max-width", "-w").int().default(100).help("Maximum line width")
 
-    val write by parser.option(ArgType.Boolean, description = "Write formatting changes to files").default(false)
-    val check by
-      parser.option(ArgType.Boolean, description = "Check if files need formatting, exit 1 if so").default(false)
-    val version by
-      parser.option(ArgType.Boolean, shortName = "V", description = "Print version information").default(false)
-    val debug by
-      parser.option(ArgType.Boolean, description = "Enable debug output with timing information").default(false)
-    val concurrency by
-      parser
-        .option(ArgType.Int, shortName = "j", description = "Number of parallel threads for formatting")
-        .default(Runtime.getRuntime().availableProcessors())
-    val cacheLocation by
-      parser.option(
-        ArgType.String,
-        fullName = "cache-location",
-        description = "Cache file location to skip unchanged files",
-      )
+  private val blockIndent by
+    option("--block-indent").int().help("Block indent size in spaces (overrides style default)")
 
-    val globs by
-      parser
-        .argument(ArgType.String, description = "Files, directories, or glob patterns to format")
-        .optional()
-        .vararg()
+  private val continuationIndent by
+    option("--continuation-indent").int().help("Continuation indent size in spaces (overrides style default)")
 
-    parser.parse(args)
+  private val removeUnusedImports by
+    option("--remove-unused-imports").flag("--no-remove-unused-imports", default = true).help("Remove unused imports")
+
+  private val manageTrailingCommas by
+    option("--manage-trailing-commas")
+      .switch("--manage-trailing-commas" to true, "--no-manage-trailing-commas" to false)
+      .help("Automatically add/remove trailing commas (defaults based on style)")
+
+  private val write by option("--write").flag().help("Write formatting changes to files")
+
+  private val check by option("--check").flag().help("Check if files need formatting, exit 1 if so")
+
+  private val version by option("--version", "-V").flag().help("Print version information")
+
+  private val debug by option("--debug").flag().help("Enable debug output with timing information")
+
+  private val concurrency by
+    option("--concurrency", "-j")
+      .int()
+      .default(Runtime.getRuntime().availableProcessors())
+      .help("Number of parallel threads for formatting")
+
+  private val cacheLocation by option("--cache-location").help("Cache file location to skip unchanged files")
+
+  private val globs by argument(name = "globs", help = "Files, directories, or glob patterns to format").multiple()
+
+  private fun formatWriteOutput(result: FormattingResult.WriteResult): String {
+    return if (result.skippedFiles.isNotEmpty()) {
+      "Formatted ${result.formattedFiles.size} of ${result.allFiles.size} files (skipped ${result.skippedFiles.size} unchanged)"
+    } else {
+      "Formatted ${result.formattedFiles.size} of ${result.allFiles.size} files"
+    }
+  }
+
+  private fun formatCheckOutput(result: FormattingResult.CheckResult): String {
+    return if (result.filesNeedingFormatting.isNotEmpty()) {
+      // First, list files that need formatting
+      val output = StringBuilder()
+      result.filesNeedingFormatting.forEach { file -> output.appendLine("$file needs formatting") }
+
+      // Then add summary
+      if (result.skippedFiles.isNotEmpty()) {
+        output.append(
+          "${result.filesNeedingFormatting.size} of ${result.allFiles.size} files need formatting (skipped ${result.skippedFiles.size} unchanged)"
+        )
+      } else {
+        output.append("${result.filesNeedingFormatting.size} of ${result.allFiles.size} files need formatting")
+      }
+      output.toString()
+    } else {
+      if (result.skippedFiles.isNotEmpty()) {
+        "All ${result.allFiles.size} files are properly formatted (skipped ${result.skippedFiles.size} unchanged)"
+      } else {
+        "All ${result.allFiles.size} files are properly formatted"
+      }
+    }
+  }
+
+  override fun run() {
+    // Debug output: show parsed options and globs
+    if (debug) {
+      println("Debug: Parsed options:")
+      println("  --style: $style")
+      println("  --max-width: $maxWidth")
+      println("  --block-indent: $blockIndent")
+      println("  --continuation-indent: $continuationIndent")
+      println("  --remove-unused-imports: $removeUnusedImports")
+      println("  --manage-trailing-commas: $manageTrailingCommas")
+      println("  --write: $write")
+      println("  --check: $check")
+      println("  --debug: $debug")
+      println("  --concurrency: $concurrency")
+      println("  --cache-location: $cacheLocation")
+      println("  raw globs: ${(globs as List<String>).joinToString(", ")}")
+    }
 
     // Check if any globs look like options (start with -)
-    val suspiciousGlobs = globs.filter { it.startsWith("-") }
+    val suspiciousGlobs = (globs as List<String>).filter { it.startsWith("-") }
     if (suspiciousGlobs.isNotEmpty()) {
       System.err.println("Error: Unknown option(s): ${suspiciousGlobs.joinToString(", ")}")
-      return 1
+      exitProcess(1)
     }
 
     if (version) {
       printVersion()
-      return 0
+      return
     }
 
-    val actualGlobs = if (globs.isEmpty()) listOf("**/*") else globs.toList()
+    val actualGlobs = if ((globs as List<String>).isEmpty()) listOf("**/*") else globs
 
-    return runFormatting(
-      actualGlobs,
-      style,
-      maxWidth,
-      blockIndent,
-      continuationIndent,
-      removeUnusedImports,
-      manageTrailingCommas,
-      write,
-      check,
-      debug,
-      concurrency,
-      cacheLocation,
-    )
+    if (debug) {
+      println("Debug: Effective globs: ${(actualGlobs as List<String>).joinToString(", ")}")
+    }
+
+    val exitCode =
+      runFormatting(
+        actualGlobs,
+        style,
+        maxWidth,
+        blockIndent,
+        continuationIndent,
+        removeUnusedImports,
+        manageTrailingCommas,
+        write,
+        check,
+        debug,
+        concurrency,
+        cacheLocation,
+      )
+
+    if (exitCode != 0) {
+      exitProcess(exitCode)
+    }
   }
 
-  private fun runFormatting(
+  internal fun runFormatting(
     globs: List<String>,
     style: String,
     maxWidth: Int,
@@ -169,7 +237,8 @@ class App(
         if (debug) {
           println("Debug: Formatting took $formatTime")
         }
-        result
+        println(formatWriteOutput(result))
+        0
       }
       check -> {
         val (result, formatTime) =
@@ -177,7 +246,8 @@ class App(
         if (debug) {
           println("Debug: Checking took $formatTime")
         }
-        result
+        println(formatCheckOutput(result))
+        if (result.filesNeedingFormatting.isNotEmpty()) 1 else 0
       }
       else -> 1
     }
@@ -474,12 +544,12 @@ class App(
     options: FormattingOptions,
     concurrency: Int = Runtime.getRuntime().availableProcessors(),
     cacheLocation: String? = null,
-  ): Int {
-    val cacheManager = cacheLocation?.let { CacheManager(Paths.get(it)) }
+  ): FormattingResult.WriteResult {
+    val cacheManager = cacheLocation?.let { CacheManager(fileSystem.getPath(it)) }
     val cache = cacheManager?.loadCache() ?: emptyMap()
     val updatedCache = cache.toMutableMap()
-    val changed = AtomicInteger(0)
-    val skipped = AtomicInteger(0)
+    val formattedFiles = mutableListOf<Path>()
+    val skippedFiles = mutableListOf<Path>()
     val executor = Executors.newFixedThreadPool(concurrency)
 
     try {
@@ -487,8 +557,8 @@ class App(
         files.map { file ->
           executor.submit<Unit> {
             // Check cache first
-            if (cacheManager != null && cacheManager.shouldSkipFile(file, cache)) {
-              skipped.incrementAndGet()
+            if (cacheManager != null && cacheManager.shouldSkipFile(file, cache, options)) {
+              synchronized(skippedFiles) { skippedFiles.add(file) }
               return@submit
             }
 
@@ -496,14 +566,13 @@ class App(
             val formattedCode = Formatter.format(options, originalCode)
             if (originalCode != formattedCode) {
               Files.writeString(file, formattedCode)
-              println("Formatted $file")
-              changed.incrementAndGet()
+              synchronized(formattedFiles) { formattedFiles.add(file) }
             }
 
             // Update cache with current hash
             if (cacheManager != null) {
               synchronized(updatedCache) {
-                updatedCache[file.toAbsolutePath().normalize()] = cacheManager.calculateHash(file)
+                updatedCache[file.toAbsolutePath().normalize()] = cacheManager.calculateHash(file, options)
               }
             }
           }
@@ -518,14 +587,12 @@ class App(
       cacheManager.saveCache(updatedCache)
     }
 
-    val skippedCount = skipped.get()
-    val changedCount = changed.get()
-    if (skippedCount > 0) {
-      println("Formatted $changedCount of ${files.size} files (skipped $skippedCount unchanged)")
-    } else {
-      println("Formatted $changedCount of ${files.size} files")
-    }
-    return 0
+    return FormattingResult.WriteResult(
+      allFiles = files,
+      formattedFiles = formattedFiles.toList(),
+      skippedFiles = skippedFiles.toList(),
+      cacheUpdates = updatedCache,
+    )
   }
 
   internal fun processCheck(
@@ -533,12 +600,12 @@ class App(
     options: FormattingOptions,
     concurrency: Int = Runtime.getRuntime().availableProcessors(),
     cacheLocation: String? = null,
-  ): Int {
-    val cacheManager = cacheLocation?.let { CacheManager(Paths.get(it)) }
+  ): FormattingResult.CheckResult {
+    val cacheManager = cacheLocation?.let { CacheManager(fileSystem.getPath(it)) }
     val cache = cacheManager?.loadCache() ?: emptyMap()
     val updatedCache = cache.toMutableMap()
-    val needsFormatting = AtomicInteger(0)
-    val skipped = AtomicInteger(0)
+    val filesNeedingFormatting = mutableListOf<Path>()
+    val skippedFiles = mutableListOf<Path>()
     val executor = Executors.newFixedThreadPool(concurrency)
 
     try {
@@ -546,22 +613,21 @@ class App(
         files.map { file ->
           executor.submit<Unit> {
             // Check cache first
-            if (cacheManager != null && cacheManager.shouldSkipFile(file, cache)) {
-              skipped.incrementAndGet()
+            if (cacheManager != null && cacheManager.shouldSkipFile(file, cache, options)) {
+              synchronized(skippedFiles) { skippedFiles.add(file) }
               return@submit
             }
 
             val originalCode = Files.readString(file)
             val formattedCode = Formatter.format(options, originalCode)
             if (originalCode != formattedCode) {
-              println("$file needs formatting")
-              needsFormatting.incrementAndGet()
-            }
-
-            // Update cache with current hash
-            if (cacheManager != null) {
-              synchronized(updatedCache) {
-                updatedCache[file.toAbsolutePath().normalize()] = cacheManager.calculateHash(file)
+              synchronized(filesNeedingFormatting) { filesNeedingFormatting.add(file) }
+            } else {
+              // Only update cache if file is already properly formatted
+              if (cacheManager != null) {
+                synchronized(updatedCache) {
+                  updatedCache[file.toAbsolutePath().normalize()] = cacheManager.calculateHash(file, options)
+                }
               }
             }
           }
@@ -576,32 +642,19 @@ class App(
       cacheManager.saveCache(updatedCache)
     }
 
-    val count = needsFormatting.get()
-    val skippedCount = skipped.get()
-
-    return if (count > 0) {
-      if (skippedCount > 0) {
-        println("$count of ${files.size} files need formatting (skipped $skippedCount unchanged)")
-      } else {
-        println("$count of ${files.size} files need formatting")
-      }
-      1
-    } else {
-      if (skippedCount > 0) {
-        println("All ${files.size} files are properly formatted (skipped $skippedCount unchanged)")
-      } else {
-        println("All ${files.size} files are properly formatted")
-      }
-      0
-    }
+    return FormattingResult.CheckResult(
+      allFiles = files,
+      filesNeedingFormatting = filesNeedingFormatting.toList(),
+      skippedFiles = skippedFiles.toList(),
+      cacheUpdates = updatedCache,
+    )
   }
 }
 
 fun main(args: Array<String>) {
   val app = App()
   try {
-    val exitCode = app.run(args)
-    exitProcess(exitCode)
+    app.main(args)
   } catch (e: KtfmtCliException) {
     System.err.println("Error: ${e.message}")
     exitProcess(1)

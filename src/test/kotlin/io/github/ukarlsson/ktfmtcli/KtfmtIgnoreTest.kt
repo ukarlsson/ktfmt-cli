@@ -363,13 +363,15 @@ class KtfmtIgnoreTest :
         Files.createDirectories(generatedFile.parent)
         Files.createFile(generatedFile)
 
-        // Create app with working directory in subdirectory (simulating running from submodule)
+        // Create app with working directory in subdirectory (simulating running from
+        // submodule)
         val app = App(fileSystem = fs, workingDirectory = subDir)
         val result = app.loadKtfmtIgnore(subDir) // Searches upward from subDir, finds .ktfmtignore in projectRoot
         val patterns = result.patterns
         val ignoreBaseDir = result.baseDirectory
 
-        // FIXED: Now patterns are resolved relative to ignoreBaseDir (projectRoot), not subDir
+        // FIXED: Now patterns are resolved relative to ignoreBaseDir (projectRoot), not
+        // subDir
         // The build file should be ignored because:
         // - .ktfmtignore is found in /project/
         // - Pattern "build/**" is resolved relative to /project/ (ignoreBaseDir)

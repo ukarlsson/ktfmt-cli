@@ -7,16 +7,17 @@ plugins {
 
 repositories { mavenCentral() }
 
-// Version configuration
-val cliVersion = "0.0.5"
-val ktfmtVersion = "0.53"
-val fullVersion = "$cliVersion-ktfmt$ktfmtVersion"
+// Version configuration from gradle.properties
+val cliVersion = providers.gradleProperty("cliVersion")
+val ktfmtVersion = providers.gradleProperty("ktfmtVersion")
+val fullVersion = cliVersion.zip(ktfmtVersion) { cli, ktfmt -> "$cli-ktfmt$ktfmt" }
 
 dependencies {
   implementation(kotlin("stdlib"))
-  implementation("com.facebook:ktfmt:$ktfmtVersion")
-  implementation("org.jetbrains.kotlinx:kotlinx-cli:0.3.6")
+  implementation(ktfmtVersion.map { "com.facebook:ktfmt:$it" })
+  implementation("com.github.ajalt.clikt:clikt:4.4.0")
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+  implementation("commons-codec:commons-codec:1.18.0")
 
   testImplementation("io.kotest:kotest-runner-junit5:5.8.0")
   testImplementation("io.kotest:kotest-assertions-core:5.8.0")
@@ -35,7 +36,9 @@ tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar> {
 
 // Pass version to compilation
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-  kotlinOptions.freeCompilerArgs += listOf("-Xjvm-default=all")
+  compilerOptions {
+    freeCompilerArgs.add("-Xjvm-default=all")
+  }
 }
 
 // Create version properties file
