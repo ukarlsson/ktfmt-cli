@@ -211,7 +211,12 @@ class App(
       isUnderWorkingDirectory(path) &&
       !isIgnored(path, ignorePatterns, baseDir)
 
-  private fun collectFromPath(path: Path, originalGlob: String, ignorePatterns: List<String>): List<Path> {
+  private fun collectFromPath(
+    path: Path,
+    originalGlob: String,
+    ignorePatterns: List<String>,
+    ignoreBaseDir: Path,
+  ): List<Path> {
     if (!isUnderWorkingDirectory(path)) {
       if (Files.isDirectory(path)) {
         throw KtfmtCliException("Directory '$originalGlob' is outside the working directory")
@@ -222,7 +227,7 @@ class App(
 
     return when {
       Files.isRegularFile(path) -> {
-        if (isValidKotlinFile(path, ignorePatterns, workingDirectory)) listOf(path) else emptyList()
+        if (isValidKotlinFile(path, ignorePatterns, ignoreBaseDir)) listOf(path) else emptyList()
       }
       Files.isDirectory(path) -> {
         val results = mutableListOf<Path>()
@@ -231,7 +236,7 @@ class App(
           object : SimpleFileVisitor<Path>() {
             override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
               // Skip the starting directory check, but check all subdirectories
-              if (dir != path && isIgnored(dir, ignorePatterns, workingDirectory)) {
+              if (dir != path && isIgnored(dir, ignorePatterns, ignoreBaseDir)) {
                 return FileVisitResult.SKIP_SUBTREE
               }
               // Security check: ensure directory is under working directory
@@ -242,7 +247,7 @@ class App(
             }
 
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-              if (isValidKotlinFile(file, ignorePatterns, workingDirectory)) {
+              if (isValidKotlinFile(file, ignorePatterns, ignoreBaseDir)) {
                 results.add(file)
               }
               return FileVisitResult.CONTINUE
@@ -301,6 +306,7 @@ class App(
     glob: String,
     startingDir: Path,
     ignorePatterns: List<String>,
+    ignoreBaseDir: Path,
     debug: Boolean = false,
   ): List<Path> {
     // Extract the base directory from the glob pattern to optimize traversal
@@ -319,7 +325,7 @@ class App(
         override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
           // Skip the starting directory check, but check all subdirectories
           if (dir != baseDir) {
-            val ignored = isIgnored(dir, ignorePatterns, startingDir)
+            val ignored = isIgnored(dir, ignorePatterns, ignoreBaseDir)
             if (debug && ignored) {
               val relativePath =
                 try {
@@ -347,7 +353,7 @@ class App(
             if (
               pathMatcher.matches(relativePath) &&
                 isUnderWorkingDirectory(file) &&
-                !isIgnored(file, ignorePatterns, startingDir)
+                !isIgnored(file, ignorePatterns, ignoreBaseDir)
             ) {
               results.add(file)
             }
@@ -361,7 +367,9 @@ class App(
   }
 
   internal fun collectFiles(startingDir: Path, globs: List<String>, debug: Boolean = false): List<Path> {
-    val (ignorePatterns, ignoreTime) = measureTimedValue { loadKtfmtIgnore() }
+    val (ignoreResult, ignoreTime) = measureTimedValue { loadKtfmtIgnore() }
+    val ignorePatterns = ignoreResult.patterns
+    val ignoreBaseDir = ignoreResult.baseDirectory
     if (debug) {
       println("Debug: Loading ignore patterns took $ignoreTime")
     }
@@ -382,15 +390,15 @@ class App(
             when {
               Files.exists(resolvedPath) -> {
                 // Check if the resolved path itself is ignored
-                if (isIgnored(resolvedPath, ignorePatterns, startingDir)) {
+                if (isIgnored(resolvedPath, ignorePatterns, ignoreBaseDir)) {
                   emptyList()
                 } else {
-                  collectFromPath(resolvedPath, glob, ignorePatterns)
+                  collectFromPath(resolvedPath, glob, ignorePatterns, ignoreBaseDir)
                 }
               }
               else -> {
                 // Path doesn't exist, treat as glob pattern
-                collectFromGlob(glob, startingDir, ignorePatterns, debug)
+                collectFromGlob(glob, startingDir, ignorePatterns, ignoreBaseDir, debug)
               }
             }
           }
@@ -402,21 +410,25 @@ class App(
       .distinct()
   }
 
-  internal fun loadKtfmtIgnore(): List<String> = loadKtfmtIgnore(workingDirectory)
+  data class KtfmtIgnoreResult(val patterns: List<String>, val baseDirectory: Path)
 
-  internal fun loadKtfmtIgnore(startDir: Path): List<String> {
+  internal fun loadKtfmtIgnore(): KtfmtIgnoreResult = loadKtfmtIgnore(workingDirectory)
+
+  internal fun loadKtfmtIgnore(startDir: Path): KtfmtIgnoreResult {
     // Search upward from starting directory to find .ktfmtignore (like .gitignore)
     var currentDir: Path? = startDir.toAbsolutePath()
 
     while (currentDir != null) {
       val ignoreFile = currentDir.resolve(".ktfmtignore")
       if (Files.exists(ignoreFile)) {
-        return Files.readAllLines(ignoreFile).map { it.trim() }.filter { it.isNotBlank() && !it.startsWith("#") }
+        val patterns =
+          Files.readAllLines(ignoreFile).map { it.trim() }.filter { it.isNotBlank() && !it.startsWith("#") }
+        return KtfmtIgnoreResult(patterns, currentDir)
       }
       currentDir = currentDir.parent
     }
 
-    return emptyList()
+    return KtfmtIgnoreResult(emptyList(), startDir)
   }
 
   private fun isUnderWorkingDirectory(filePath: Path): Boolean =

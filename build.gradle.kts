@@ -8,7 +8,7 @@ plugins {
 repositories { mavenCentral() }
 
 // Version configuration
-val cliVersion = "0.0.4"
+val cliVersion = "0.0.5"
 val ktfmtVersion = "0.53"
 val fullVersion = "$cliVersion-ktfmt$ktfmtVersion"
 

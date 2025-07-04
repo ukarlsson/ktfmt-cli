@@ -18,9 +18,9 @@ class KtfmtIgnoreTest :
         Files.createDirectories(workingDir)
 
         val app = App(fileSystem = fs, workingDirectory = workingDir)
-        val patterns = app.loadKtfmtIgnore(workingDir)
+        val result = app.loadKtfmtIgnore(workingDir)
 
-        patterns.shouldBeEmpty()
+        result.patterns.shouldBeEmpty()
       }
 
       it("should parse patterns from .ktfmtignore file") {
@@ -45,7 +45,8 @@ class KtfmtIgnoreTest :
         Files.write(ignoreFile, ignoreContent.toByteArray())
 
         val app = App(fileSystem = fs, workingDirectory = workingDir)
-        val patterns = app.loadKtfmtIgnore(workingDir)
+        val result = app.loadKtfmtIgnore(workingDir)
+        val patterns = result.patterns
 
         patterns shouldHaveSize 4
         patterns shouldContain "build/**"
@@ -69,9 +70,9 @@ class KtfmtIgnoreTest :
         Files.write(ignoreFile, "".toByteArray())
 
         val app = App(fileSystem = fs, workingDirectory = workingDir)
-        val patterns = app.loadKtfmtIgnore(workingDir)
+        val result = app.loadKtfmtIgnore(workingDir)
 
-        patterns.shouldBeEmpty()
+        result.patterns.shouldBeEmpty()
       }
 
       it("should handle .ktfmtignore with only comments and empty lines") {
@@ -95,9 +96,9 @@ class KtfmtIgnoreTest :
         Files.write(ignoreFile, ignoreContent.toByteArray())
 
         val app = App(fileSystem = fs, workingDirectory = workingDir)
-        val patterns = app.loadKtfmtIgnore(workingDir)
+        val result = app.loadKtfmtIgnore(workingDir)
 
-        patterns.shouldBeEmpty()
+        result.patterns.shouldBeEmpty()
       }
 
       it("should trim whitespace from patterns") {
@@ -118,7 +119,8 @@ class KtfmtIgnoreTest :
         Files.write(ignoreFile, ignoreContent.toByteArray())
 
         val app = App(fileSystem = fs, workingDirectory = workingDir)
-        val patterns = app.loadKtfmtIgnore(workingDir)
+        val result = app.loadKtfmtIgnore(workingDir)
+        val patterns = result.patterns
 
         patterns shouldHaveSize 3
         patterns shouldContain "build/**"
@@ -163,7 +165,8 @@ class KtfmtIgnoreTest :
         Files.write(ignoreFile, ignoreContent.toByteArray())
 
         val app = App(fileSystem = fs, workingDirectory = workingDir)
-        val patterns = app.loadKtfmtIgnore(workingDir)
+        val result = app.loadKtfmtIgnore(workingDir)
+        val patterns = result.patterns
 
         patterns shouldHaveSize 11
         patterns shouldContain "build/**"
@@ -260,7 +263,8 @@ class KtfmtIgnoreTest :
 
         // Create app with working directory in subdirectory
         val app = App(fileSystem = fs, workingDirectory = subDir)
-        val patterns = app.loadKtfmtIgnore(subDir)
+        val result = app.loadKtfmtIgnore(subDir)
+        val patterns = result.patterns
 
         patterns shouldHaveSize 2
         patterns shouldContain "build/**"
@@ -284,7 +288,8 @@ class KtfmtIgnoreTest :
 
         // Create app with working directory in deep directory
         val app = App(fileSystem = fs, workingDirectory = deepDir)
-        val patterns = app.loadKtfmtIgnore(deepDir)
+        val result = app.loadKtfmtIgnore(deepDir)
+        val patterns = result.patterns
 
         // Should find the closest .ktfmtignore (in submodule/)
         patterns shouldHaveSize 2
@@ -303,7 +308,8 @@ class KtfmtIgnoreTest :
 
         // No .ktfmtignore files anywhere
         val app = App(fileSystem = fs, workingDirectory = deepDir)
-        val patterns = app.loadKtfmtIgnore(deepDir)
+        val result = app.loadKtfmtIgnore(deepDir)
+        val patterns = result.patterns
 
         patterns.shouldBeEmpty()
       }
@@ -325,7 +331,8 @@ class KtfmtIgnoreTest :
 
         // App working directory is CWD, but we're collecting files from other directory
         val app = App(fileSystem = fs, workingDirectory = cwd)
-        val patterns = app.loadKtfmtIgnore() // Uses App's workingDirectory, not file locations
+        val result = app.loadKtfmtIgnore() // Uses App's workingDirectory, not file locations
+        val patterns = result.patterns
 
         // Should find patterns from CWD, not from other-project
         patterns shouldHaveSize 2
@@ -335,6 +342,44 @@ class KtfmtIgnoreTest :
         // Should NOT contain patterns from other-project
         patterns shouldNotContain "target/**"
         patterns shouldNotContain "*.class"
+      }
+
+      it("REGRESSION: should resolve ignore patterns relative to .ktfmtignore file directory, not CWD") {
+        val fs = Jimfs.newFileSystem()
+        val projectRoot = fs.getPath("/project")
+        val subDir = projectRoot.resolve("submodule")
+        val buildDir = projectRoot.resolve("build")
+        Files.createDirectories(subDir)
+        Files.createDirectories(buildDir)
+
+        // Create .ktfmtignore in project root with patterns relative to project root
+        val ignoreFile = projectRoot.resolve(".ktfmtignore")
+        Files.write(ignoreFile, "build/**\ngenerated/**".toByteArray())
+
+        // Create files that should be ignored
+        val buildFile = buildDir.resolve("Main.kt")
+        Files.createFile(buildFile)
+        val generatedFile = projectRoot.resolve("generated/Proto.kt")
+        Files.createDirectories(generatedFile.parent)
+        Files.createFile(generatedFile)
+
+        // Create app with working directory in subdirectory (simulating running from submodule)
+        val app = App(fileSystem = fs, workingDirectory = subDir)
+        val result = app.loadKtfmtIgnore(subDir) // Searches upward from subDir, finds .ktfmtignore in projectRoot
+        val patterns = result.patterns
+        val ignoreBaseDir = result.baseDirectory
+
+        // FIXED: Now patterns are resolved relative to ignoreBaseDir (projectRoot), not subDir
+        // The build file should be ignored because:
+        // - .ktfmtignore is found in /project/
+        // - Pattern "build/**" is resolved relative to /project/ (ignoreBaseDir)
+        // - File /project/build/Main.kt matches /project/build/** pattern
+
+        // This should now be true after the fix
+        app.isIgnored(buildFile, patterns, ignoreBaseDir) shouldBe true
+
+        // This demonstrates the fix: ignoreBaseDir should be projectRoot
+        ignoreBaseDir shouldBe projectRoot
       }
     }
   })
