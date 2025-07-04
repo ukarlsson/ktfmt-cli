@@ -400,5 +400,34 @@ class FileCollectionTest :
         files.map { it.fileName.toString() } shouldNotContain "module.kt"
         files.size shouldBe 1
       }
+
+      it("should skip top-level glob patterns that match ktfmtignore") {
+        val fs = Jimfs.newFileSystem()
+        val workingDir = fs.getPath("/project")
+
+        // Create directories with Kotlin files
+        val nodeModulesDir = workingDir.resolve("node_modules/some-lib")
+        val srcDir = workingDir.resolve("src")
+        Files.createDirectories(nodeModulesDir)
+        Files.createDirectories(srcDir)
+
+        Files.write(nodeModulesDir.resolve("index.kt"), "fun lib() {}".toByteArray())
+        Files.write(srcDir.resolve("App.kt"), "fun main() {}".toByteArray())
+
+        // Add ignore pattern for node_modules
+        val ignoreFile = workingDir.resolve(".ktfmtignore")
+        Files.write(ignoreFile, "node_modules".toByteArray())
+
+        val app = App(fileSystem = fs, workingDirectory = workingDir)
+
+        // Test that direct glob for node_modules returns empty (should be skipped)
+        val nodeModulesFiles = app.collectFiles(workingDir, listOf("node_modules"))
+        nodeModulesFiles.size shouldBe 0
+
+        // Test that wildcard still works for non-ignored directories
+        val allFiles = app.collectFiles(workingDir, listOf("**/*.kt"))
+        allFiles.size shouldBe 1
+        allFiles[0].fileName.toString() shouldBe "App.kt"
+      }
     }
   })

@@ -69,6 +69,12 @@ class App(
       parser
         .option(ArgType.Int, shortName = "j", description = "Number of parallel threads for formatting")
         .default(Runtime.getRuntime().availableProcessors())
+    val cacheLocation by
+      parser.option(
+        ArgType.String,
+        fullName = "cache-location",
+        description = "Cache file location to skip unchanged files",
+      )
 
     val globs by
       parser
@@ -104,6 +110,7 @@ class App(
       check,
       debug,
       concurrency,
+      cacheLocation,
     )
   }
 
@@ -119,6 +126,7 @@ class App(
     check: Boolean,
     debug: Boolean,
     concurrency: Int,
+    cacheLocation: String?,
   ): Int {
     // Validate flags
     val modeCount = listOf(write, check).count { it }
@@ -156,14 +164,16 @@ class App(
 
     return when {
       write -> {
-        val (result, formatTime) = measureTimedValue { processWrite(files, formattingOptions, concurrency) }
+        val (result, formatTime) =
+          measureTimedValue { processWrite(files, formattingOptions, concurrency, cacheLocation) }
         if (debug) {
           println("Debug: Formatting took $formatTime")
         }
         result
       }
       check -> {
-        val (result, formatTime) = measureTimedValue { processCheck(files, formattingOptions, concurrency) }
+        val (result, formatTime) =
+          measureTimedValue { processCheck(files, formattingOptions, concurrency, cacheLocation) }
         if (debug) {
           println("Debug: Checking took $formatTime")
         }
@@ -371,7 +381,12 @@ class App(
 
             when {
               Files.exists(resolvedPath) -> {
-                collectFromPath(resolvedPath, glob, ignorePatterns)
+                // Check if the resolved path itself is ignored
+                if (isIgnored(resolvedPath, ignorePatterns, startingDir)) {
+                  emptyList()
+                } else {
+                  collectFromPath(resolvedPath, glob, ignorePatterns)
+                }
               }
               else -> {
                 // Path doesn't exist, treat as glob pattern
@@ -446,13 +461,25 @@ class App(
     files: List<Path>,
     options: FormattingOptions,
     concurrency: Int = Runtime.getRuntime().availableProcessors(),
+    cacheLocation: String? = null,
   ): Int {
+    val cacheManager = cacheLocation?.let { CacheManager(Paths.get(it)) }
+    val cache = cacheManager?.loadCache() ?: emptyMap()
+    val updatedCache = cache.toMutableMap()
     val changed = AtomicInteger(0)
+    val skipped = AtomicInteger(0)
     val executor = Executors.newFixedThreadPool(concurrency)
+
     try {
       val futures =
         files.map { file ->
           executor.submit<Unit> {
+            // Check cache first
+            if (cacheManager != null && cacheManager.shouldSkipFile(file, cache)) {
+              skipped.incrementAndGet()
+              return@submit
+            }
+
             val originalCode = Files.readString(file)
             val formattedCode = Formatter.format(options, originalCode)
             if (originalCode != formattedCode) {
@@ -460,32 +487,12 @@ class App(
               println("Formatted $file")
               changed.incrementAndGet()
             }
-          }
-        }
-      futures.forEach { it.get() }
-    } finally {
-      executor.shutdown()
-    }
-    println("Formatted ${changed.get()} of ${files.size} files")
-    return 0
-  }
 
-  internal fun processCheck(
-    files: List<Path>,
-    options: FormattingOptions,
-    concurrency: Int = Runtime.getRuntime().availableProcessors(),
-  ): Int {
-    val needsFormatting = AtomicInteger(0)
-    val executor = Executors.newFixedThreadPool(concurrency)
-    try {
-      val futures =
-        files.map { file ->
-          executor.submit<Unit> {
-            val originalCode = Files.readString(file)
-            val formattedCode = Formatter.format(options, originalCode)
-            if (originalCode != formattedCode) {
-              println("$file needs formatting")
-              needsFormatting.incrementAndGet()
+            // Update cache with current hash
+            if (cacheManager != null) {
+              synchronized(updatedCache) {
+                updatedCache[file.toAbsolutePath().normalize()] = cacheManager.calculateHash(file)
+              }
             }
           }
         }
@@ -493,13 +500,86 @@ class App(
     } finally {
       executor.shutdown()
     }
+
+    // Save updated cache
+    if (cacheManager != null) {
+      cacheManager.saveCache(updatedCache)
+    }
+
+    val skippedCount = skipped.get()
+    val changedCount = changed.get()
+    if (skippedCount > 0) {
+      println("Formatted $changedCount of ${files.size} files (skipped $skippedCount unchanged)")
+    } else {
+      println("Formatted $changedCount of ${files.size} files")
+    }
+    return 0
+  }
+
+  internal fun processCheck(
+    files: List<Path>,
+    options: FormattingOptions,
+    concurrency: Int = Runtime.getRuntime().availableProcessors(),
+    cacheLocation: String? = null,
+  ): Int {
+    val cacheManager = cacheLocation?.let { CacheManager(Paths.get(it)) }
+    val cache = cacheManager?.loadCache() ?: emptyMap()
+    val updatedCache = cache.toMutableMap()
+    val needsFormatting = AtomicInteger(0)
+    val skipped = AtomicInteger(0)
+    val executor = Executors.newFixedThreadPool(concurrency)
+
+    try {
+      val futures =
+        files.map { file ->
+          executor.submit<Unit> {
+            // Check cache first
+            if (cacheManager != null && cacheManager.shouldSkipFile(file, cache)) {
+              skipped.incrementAndGet()
+              return@submit
+            }
+
+            val originalCode = Files.readString(file)
+            val formattedCode = Formatter.format(options, originalCode)
+            if (originalCode != formattedCode) {
+              println("$file needs formatting")
+              needsFormatting.incrementAndGet()
+            }
+
+            // Update cache with current hash
+            if (cacheManager != null) {
+              synchronized(updatedCache) {
+                updatedCache[file.toAbsolutePath().normalize()] = cacheManager.calculateHash(file)
+              }
+            }
+          }
+        }
+      futures.forEach { it.get() }
+    } finally {
+      executor.shutdown()
+    }
+
+    // Save updated cache
+    if (cacheManager != null) {
+      cacheManager.saveCache(updatedCache)
+    }
+
     val count = needsFormatting.get()
+    val skippedCount = skipped.get()
 
     return if (count > 0) {
-      println("$count of ${files.size} files need formatting")
+      if (skippedCount > 0) {
+        println("$count of ${files.size} files need formatting (skipped $skippedCount unchanged)")
+      } else {
+        println("$count of ${files.size} files need formatting")
+      }
       1
     } else {
-      println("All ${files.size} files are properly formatted")
+      if (skippedCount > 0) {
+        println("All ${files.size} files are properly formatted (skipped $skippedCount unchanged)")
+      } else {
+        println("All ${files.size} files are properly formatted")
+      }
       0
     }
   }

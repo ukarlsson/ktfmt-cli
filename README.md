@@ -24,10 +24,10 @@ Download the latest JAR from the [Releases page](https://github.com/ukarlsson/kt
 
 ```bash
 # Download the latest release
-wget https://github.com/ukarlsson/ktfmt-cli/releases/latest/download/ktfmt-cli-0.0.3-ktfmt0.53.jar
+wget https://github.com/ukarlsson/ktfmt-cli/releases/latest/download/ktfmt-cli-0.0.4-ktfmt0.53.jar
 
 # Make it executable (optional)
-chmod +x ktfmt-cli-0.0.3-ktfmt0.53.jar
+chmod +x ktfmt-cli-0.0.4-ktfmt0.53.jar
 ```
 
 ### Build from Source
@@ -77,6 +77,7 @@ Formatting Options:
 
 Performance Options:
     --concurrency, -j [auto]        Number of parallel threads for formatting (default: CPU cores)
+    --cache-location <file>         Cache file location to skip unchanged files (performance optimization)
     --debug                         Enable debug output with timing information
 
 Other Options:
@@ -138,6 +139,9 @@ java -jar ktfmt-cli.jar --write -j 4
 # Single-threaded for debugging
 java -jar ktfmt-cli.jar --write -j 1
 
+# Enable caching to skip unchanged files (major performance improvement)
+java -jar ktfmt-cli.jar --write --cache-location .ktfmt-cache
+
 # Debug timing information
 java -jar ktfmt-cli.jar --write --debug
 ```
@@ -191,7 +195,7 @@ Check version:
 java -jar ktfmt-cli.jar --version
 ```
 
-Current release: **v0.0.2** (Bug fix release)
+Current release: **v0.0.4** (Cache and performance improvements)
 
 ## Dependencies
 

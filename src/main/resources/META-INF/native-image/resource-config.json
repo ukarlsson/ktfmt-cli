@@ -1,0 +1,11 @@
+{
+  "resources": {
+    "includes": [
+      {
+        "pattern": "version.properties"
+      }
+    ],
+    "excludes": []
+  },
+  "bundles": []
+}
