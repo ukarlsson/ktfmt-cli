@@ -1,5 +1,13 @@
 # Claude Development Guidelines
 
+## For general instructions
+
+@README.md
+
+## For release instructions
+
+@RELEASE.md
+
 ## Exception Handling
 
 **NEVER use catch-all exception handlers like `catch (e: Exception)`**

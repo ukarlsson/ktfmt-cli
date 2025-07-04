@@ -78,6 +78,13 @@ class App(
 
     parser.parse(args)
 
+    // Check if any globs look like options (start with -)
+    val suspiciousGlobs = globs.filter { it.startsWith("-") }
+    if (suspiciousGlobs.isNotEmpty()) {
+      System.err.println("Error: Unknown option(s): ${suspiciousGlobs.joinToString(", ")}")
+      return 1
+    }
+
     if (version) {
       printVersion()
       return 0
@@ -419,10 +426,20 @@ class App(
         filePath
       }
 
-    return ignorePatterns.any { pattern ->
-      val matcher = fileSystem.getPathMatcher("glob:$pattern")
-      matcher.matches(relativePath)
+    // Process patterns sequentially like .gitignore
+    var ignored = false
+
+    for (pattern in ignorePatterns) {
+      val isNegation = pattern.startsWith("!")
+      val actualPattern = if (isNegation) pattern.substring(1) else pattern
+
+      val matcher = fileSystem.getPathMatcher("glob:$actualPattern")
+      if (matcher.matches(relativePath)) {
+        ignored = !isNegation
+      }
     }
+
+    return ignored
   }
 
   internal fun processWrite(

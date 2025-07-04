@@ -23,7 +23,7 @@
 4. **Commit and push all changes**:
    ```bash
    git add .
-   git commit -m "Prepare release v0.0.2"
+   git commit -m "Prepare release v0.0.3"
    git push origin main
    ```
 
@@ -31,22 +31,25 @@
 
 ```bash
 # Create annotated tag (update version number as needed)
-git tag -a v0.0.2 -m "Release v0.0.2
+git tag -a v0.0.3 -m "Release v0.0.3
 
 ## Features
 - Format Kotlin files using ktfmt
 - Support for multiple formatting styles (Meta, Google, KotlinLang)
 - Glob pattern support with optimized directory traversal
-- .ktfmtignore file support
+- .ktfmtignore file support with negation patterns (!pattern)
 - Parallel processing with configurable concurrency
 - Debug timing information
 - CI/CD integration with check mode
+- Invalid CLI option validation
 
-## Changes in 0.0.2
-- Bug fixes from 0.0.1 release"
+## Changes in 0.0.3
+- Added .gitignore-style negation patterns (!pattern) to .ktfmtignore files
+- Fixed critical bug where invalid CLI options were treated as glob patterns
+- Improved argument validation with proper error messages"
 
 # Push tag to trigger release
-git push origin v0.0.2
+git push origin v0.0.3
 ```
 
 ### 3. Create GitHub Release
@@ -88,5 +91,5 @@ We follow semantic versioning (semver):
 - `MAJOR.MINOR.PATCH` (e.g., 1.2.3)
 - For pre-1.0: `0.MINOR.PATCH` (e.g., 0.1.0, 0.0.1)
 
-Current release: **v0.0.2** (Bug fix release)
-Previous release: **v0.0.1** (Initial release)
+Current release: **v0.0.3** (Feature and bug fix release)
+Previous release: **v0.0.2** (Bug fix release)
