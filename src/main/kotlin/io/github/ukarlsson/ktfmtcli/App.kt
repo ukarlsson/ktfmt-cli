@@ -36,6 +36,7 @@ sealed interface FormattingResult {
     override val allFiles: List<Path>,
     val formattedFiles: List<Path>,
     override val skippedFiles: List<Path>,
+    val failedFiles: List<Path>,
     override val cacheUpdates: Map<Path, Int>,
   ) : FormattingResult
 
@@ -43,6 +44,7 @@ sealed interface FormattingResult {
     override val allFiles: List<Path>,
     val filesNeedingFormatting: List<Path>,
     override val skippedFiles: List<Path>,
+    val failedFiles: List<Path>,
     override val cacheUpdates: Map<Path, Int>,
   ) : FormattingResult
 }
@@ -94,35 +96,86 @@ class App(
   private val globs by argument(name = "globs", help = "Files, directories, or glob patterns to format").multiple()
 
   private fun formatWriteOutput(result: FormattingResult.WriteResult): String {
-    return if (result.skippedFiles.isNotEmpty()) {
-      "Formatted ${result.formattedFiles.size} of ${result.allFiles.size} files (skipped ${result.skippedFiles.size} unchanged)"
-    } else {
-      "Formatted ${result.formattedFiles.size} of ${result.allFiles.size} files"
+    val output = StringBuilder()
+
+    // Report failed files first
+    if (result.failedFiles.isNotEmpty()) {
+      result.failedFiles.forEach { file -> output.appendLine("Failed to format $file") }
     }
+
+    // Then add summary
+    val summary =
+      when {
+        result.skippedFiles.isNotEmpty() && result.failedFiles.isNotEmpty() -> {
+          "Formatted ${result.formattedFiles.size} of ${result.allFiles.size} files (skipped ${result.skippedFiles.size} unchanged, ${result.failedFiles.size} failed)"
+        }
+        result.skippedFiles.isNotEmpty() -> {
+          "Formatted ${result.formattedFiles.size} of ${result.allFiles.size} files (skipped ${result.skippedFiles.size} unchanged)"
+        }
+        result.failedFiles.isNotEmpty() -> {
+          "Formatted ${result.formattedFiles.size} of ${result.allFiles.size} files (${result.failedFiles.size} failed)"
+        }
+        else -> {
+          "Formatted ${result.formattedFiles.size} of ${result.allFiles.size} files"
+        }
+      }
+
+    output.append(summary)
+    return output.toString()
   }
 
   private fun formatCheckOutput(result: FormattingResult.CheckResult): String {
-    return if (result.filesNeedingFormatting.isNotEmpty()) {
-      // First, list files that need formatting
-      val output = StringBuilder()
-      result.filesNeedingFormatting.forEach { file -> output.appendLine("$file needs formatting") }
+    val output = StringBuilder()
 
-      // Then add summary
-      if (result.skippedFiles.isNotEmpty()) {
-        output.append(
-          "${result.filesNeedingFormatting.size} of ${result.allFiles.size} files need formatting (skipped ${result.skippedFiles.size} unchanged)"
-        )
-      } else {
-        output.append("${result.filesNeedingFormatting.size} of ${result.allFiles.size} files need formatting")
-      }
-      output.toString()
-    } else {
-      if (result.skippedFiles.isNotEmpty()) {
-        "All ${result.allFiles.size} files are properly formatted (skipped ${result.skippedFiles.size} unchanged)"
-      } else {
-        "All ${result.allFiles.size} files are properly formatted"
-      }
+    // Report failed files first
+    if (result.failedFiles.isNotEmpty()) {
+      result.failedFiles.forEach { file -> output.appendLine("Failed to check $file") }
     }
+
+    // Then report files that need formatting
+    if (result.filesNeedingFormatting.isNotEmpty()) {
+      result.filesNeedingFormatting.forEach { file -> output.appendLine("$file needs formatting") }
+    }
+
+    // Then add summary
+    val summary =
+      when {
+        result.filesNeedingFormatting.isNotEmpty() -> {
+          when {
+            result.skippedFiles.isNotEmpty() && result.failedFiles.isNotEmpty() -> {
+              "${result.filesNeedingFormatting.size} of ${result.allFiles.size} files need formatting (skipped ${result.skippedFiles.size} unchanged, ${result.failedFiles.size} failed)"
+            }
+            result.skippedFiles.isNotEmpty() -> {
+              "${result.filesNeedingFormatting.size} of ${result.allFiles.size} files need formatting (skipped ${result.skippedFiles.size} unchanged)"
+            }
+            result.failedFiles.isNotEmpty() -> {
+              "${result.filesNeedingFormatting.size} of ${result.allFiles.size} files need formatting (${result.failedFiles.size} failed)"
+            }
+            else -> {
+              "${result.filesNeedingFormatting.size} of ${result.allFiles.size} files need formatting"
+            }
+          }
+        }
+        else -> {
+          when {
+            result.skippedFiles.isNotEmpty() && result.failedFiles.isNotEmpty() -> {
+              "All ${result.allFiles.size} files are properly formatted (skipped ${result.skippedFiles.size} unchanged, ${result.failedFiles.size} failed)"
+            }
+            result.skippedFiles.isNotEmpty() -> {
+              "All ${result.allFiles.size} files are properly formatted (skipped ${result.skippedFiles.size} unchanged)"
+            }
+            result.failedFiles.isNotEmpty() -> {
+              "All ${result.allFiles.size} files are properly formatted (${result.failedFiles.size} failed)"
+            }
+            else -> {
+              "All ${result.allFiles.size} files are properly formatted"
+            }
+          }
+        }
+      }
+
+    output.append(summary)
+    return output.toString()
   }
 
   override fun run() {
@@ -238,7 +291,7 @@ class App(
           println("Debug: Formatting took $formatTime")
         }
         println(formatWriteOutput(result))
-        0
+        if (result.failedFiles.isNotEmpty()) 1 else 0
       }
       check -> {
         val (result, formatTime) =
@@ -247,7 +300,7 @@ class App(
           println("Debug: Checking took $formatTime")
         }
         println(formatCheckOutput(result))
-        if (result.filesNeedingFormatting.isNotEmpty()) 1 else 0
+        if (result.filesNeedingFormatting.isNotEmpty() || result.failedFiles.isNotEmpty()) 1 else 0
       }
       else -> 1
     }
@@ -550,6 +603,7 @@ class App(
     val updatedCache = cache.toMutableMap()
     val formattedFiles = mutableListOf<Path>()
     val skippedFiles = mutableListOf<Path>()
+    val failedFiles = mutableListOf<Path>()
     val executor = Executors.newFixedThreadPool(concurrency)
 
     try {
@@ -562,18 +616,29 @@ class App(
               return@submit
             }
 
-            val originalCode = Files.readString(file)
-            val formattedCode = Formatter.format(options, originalCode)
-            if (originalCode != formattedCode) {
-              Files.writeString(file, formattedCode)
-              synchronized(formattedFiles) { formattedFiles.add(file) }
-            }
-
-            // Update cache with current hash
-            if (cacheManager != null) {
-              synchronized(updatedCache) {
-                updatedCache[file.toAbsolutePath().normalize()] = cacheManager.calculateHash(file, options)
+            try {
+              val originalCode = Files.readString(file)
+              val formattedCode = Formatter.format(options, originalCode)
+              if (originalCode != formattedCode) {
+                Files.writeString(file, formattedCode)
+                synchronized(formattedFiles) { formattedFiles.add(file) }
               }
+
+              // Update cache with current hash
+              if (cacheManager != null) {
+                synchronized(updatedCache) {
+                  updatedCache[file.toAbsolutePath().normalize()] = cacheManager.calculateHash(file, options)
+                }
+              }
+            } catch (e: com.facebook.ktfmt.format.ParseError) {
+              synchronized(failedFiles) { failedFiles.add(file) }
+              System.err.println("Error: Failed to parse $file - ${e.message}")
+            } catch (e: java.lang.RuntimeException) {
+              synchronized(failedFiles) { failedFiles.add(file) }
+              System.err.println("Error: Failed to format $file - ${e.message}")
+            } catch (e: java.io.IOException) {
+              synchronized(failedFiles) { failedFiles.add(file) }
+              System.err.println("Error: Failed to read/write $file - ${e.message}")
             }
           }
         }
@@ -591,6 +656,7 @@ class App(
       allFiles = files,
       formattedFiles = formattedFiles.toList(),
       skippedFiles = skippedFiles.toList(),
+      failedFiles = failedFiles.toList(),
       cacheUpdates = updatedCache,
     )
   }
@@ -606,6 +672,7 @@ class App(
     val updatedCache = cache.toMutableMap()
     val filesNeedingFormatting = mutableListOf<Path>()
     val skippedFiles = mutableListOf<Path>()
+    val failedFiles = mutableListOf<Path>()
     val executor = Executors.newFixedThreadPool(concurrency)
 
     try {
@@ -618,17 +685,28 @@ class App(
               return@submit
             }
 
-            val originalCode = Files.readString(file)
-            val formattedCode = Formatter.format(options, originalCode)
-            if (originalCode != formattedCode) {
-              synchronized(filesNeedingFormatting) { filesNeedingFormatting.add(file) }
-            } else {
-              // Only update cache if file is already properly formatted
-              if (cacheManager != null) {
-                synchronized(updatedCache) {
-                  updatedCache[file.toAbsolutePath().normalize()] = cacheManager.calculateHash(file, options)
+            try {
+              val originalCode = Files.readString(file)
+              val formattedCode = Formatter.format(options, originalCode)
+              if (originalCode != formattedCode) {
+                synchronized(filesNeedingFormatting) { filesNeedingFormatting.add(file) }
+              } else {
+                // Only update cache if file is already properly formatted
+                if (cacheManager != null) {
+                  synchronized(updatedCache) {
+                    updatedCache[file.toAbsolutePath().normalize()] = cacheManager.calculateHash(file, options)
+                  }
                 }
               }
+            } catch (e: com.facebook.ktfmt.format.ParseError) {
+              synchronized(failedFiles) { failedFiles.add(file) }
+              System.err.println("Error: Failed to parse $file - ${e.message}")
+            } catch (e: java.lang.RuntimeException) {
+              synchronized(failedFiles) { failedFiles.add(file) }
+              System.err.println("Error: Failed to format $file - ${e.message}")
+            } catch (e: java.io.IOException) {
+              synchronized(failedFiles) { failedFiles.add(file) }
+              System.err.println("Error: Failed to read/write $file - ${e.message}")
             }
           }
         }
@@ -646,6 +724,7 @@ class App(
       allFiles = files,
       filesNeedingFormatting = filesNeedingFormatting.toList(),
       skippedFiles = skippedFiles.toList(),
+      failedFiles = failedFiles.toList(),
       cacheUpdates = updatedCache,
     )
   }
