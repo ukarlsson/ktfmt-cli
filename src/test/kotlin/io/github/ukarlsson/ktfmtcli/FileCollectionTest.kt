@@ -429,5 +429,65 @@ class FileCollectionTest :
         allFiles.size shouldBe 1
         allFiles[0].fileName.toString() shouldBe "App.kt"
       }
+
+      it("should respect ktfmtignore for explicitly provided files") {
+        val fs = Jimfs.newFileSystem()
+        val workingDir = fs.getPath("/project")
+        val buildDir = workingDir.resolve("build")
+        val srcDir = workingDir.resolve("src")
+        Files.createDirectories(buildDir)
+        Files.createDirectories(srcDir)
+
+        // Create files in ignored directory
+        val ignoredFile = buildDir.resolve("Generated.kt")
+        val normalFile = srcDir.resolve("App.kt")
+        Files.write(ignoredFile, "// Generated file".toByteArray())
+        Files.write(normalFile, "class App".toByteArray())
+
+        // Create .ktfmtignore with build directory ignored
+        val ignoreFile = workingDir.resolve(".ktfmtignore")
+        Files.write(ignoreFile, "build/**".toByteArray())
+
+        val app = App(fileSystem = fs, workingDirectory = workingDir)
+
+        // Test explicit file that should be ignored
+        val explicitIgnoredFiles = app.collectFiles(workingDir, listOf("build/Generated.kt"))
+        explicitIgnoredFiles shouldBe emptyList()
+
+        // Test explicit file that should not be ignored
+        val explicitNormalFiles = app.collectFiles(workingDir, listOf("src/App.kt"))
+        explicitNormalFiles.size shouldBe 1
+        explicitNormalFiles[0].fileName.toString() shouldBe "App.kt"
+
+        // Test glob pattern works correctly
+        val globFiles = app.collectFiles(workingDir, listOf("**/*.kt"))
+        globFiles.size shouldBe 1
+        globFiles[0].fileName.toString() shouldBe "App.kt"
+      }
+
+      it("should respect ktfmtignore for exact nested paths with jooq pattern") {
+        val fs = Jimfs.newFileSystem()
+        val projectRoot = fs.getPath("/gradle-project-root")
+        val jooqSrcDir = projectRoot.resolve("jooq/src/com/sanalabs")
+        Files.createDirectories(jooqSrcDir)
+
+        // Create file in jooq directory that should be ignored
+        val jooqFile = jooqSrcDir.resolve("Hello.kt")
+        Files.write(jooqFile, "class Hello".toByteArray())
+
+        // Create .ktfmtignore with jooq src pattern (without /**)
+        val ignoreFile = projectRoot.resolve(".ktfmtignore")
+        Files.write(ignoreFile, "jooq/src".toByteArray())
+
+        val app = App(fileSystem = fs, workingDirectory = projectRoot)
+
+        // Test exact path that should be ignored - this is the bug scenario
+        val exactPathFiles = app.collectFiles(projectRoot, listOf("jooq/src/com/sanalabs/Hello.kt"))
+        exactPathFiles shouldBe emptyList()
+
+        // Test that glob pattern correctly ignores the same file
+        val globFiles = app.collectFiles(projectRoot, listOf("**/*.kt"))
+        globFiles shouldBe emptyList()
+      }
     }
   })

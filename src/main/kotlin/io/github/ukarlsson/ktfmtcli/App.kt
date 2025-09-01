@@ -568,12 +568,15 @@ class App(
   internal fun isIgnored(filePath: Path, ignorePatterns: List<String>, workingDir: Path): Boolean {
     if (ignorePatterns.isEmpty()) return false
 
+    val normalizedFile = filePath.toAbsolutePath().normalize()
+    val normalizedWorkingDir = workingDir.toAbsolutePath().normalize()
+
     val relativePath =
       try {
-        workingDir.relativize(filePath)
+        normalizedWorkingDir.relativize(normalizedFile)
       } catch (e: IllegalArgumentException) {
         // If files have different roots, use absolute path
-        filePath
+        normalizedFile
       }
 
     // Process patterns sequentially like .gitignore
@@ -584,8 +587,20 @@ class App(
       val actualPattern = if (isNegation) pattern.substring(1) else pattern
 
       val matcher = fileSystem.getPathMatcher("glob:$actualPattern")
+
+      // Check if the file itself matches
       if (matcher.matches(relativePath)) {
         ignored = !isNegation
+      } else {
+        // Check if any parent directory matches (like .gitignore behavior)
+        var currentPath: Path? = relativePath.parent
+        while (currentPath != null) {
+          if (matcher.matches(currentPath)) {
+            ignored = !isNegation
+            break
+          }
+          currentPath = currentPath.parent
+        }
       }
     }
 

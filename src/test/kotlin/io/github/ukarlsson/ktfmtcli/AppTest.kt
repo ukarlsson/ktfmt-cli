@@ -208,5 +208,23 @@ class AppTest :
 
         app.isIgnored(file, patterns, workingDir) shouldBe false
       }
+
+      it("should ignore files under ignored parent directories") {
+        val fs = Jimfs.newFileSystem()
+        val workingDir = fs.getPath("/project")
+        Files.createDirectories(workingDir)
+
+        // Create nested file structure
+        val nestedFile = workingDir.resolve("jooq/src/com/sanalabs/Hello.kt")
+        Files.createDirectories(nestedFile.parent)
+        Files.write(nestedFile, "class Hello".toByteArray())
+
+        // Pattern should match parent directory and ignore nested files
+        val patterns = listOf("jooq/src")
+        val app = App(fileSystem = fs, workingDirectory = workingDir)
+
+        // File should be ignored because its parent directory matches the pattern
+        app.isIgnored(nestedFile, patterns, workingDir) shouldBe true
+      }
     }
   })
