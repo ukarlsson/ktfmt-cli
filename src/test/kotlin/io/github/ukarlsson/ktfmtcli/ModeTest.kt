@@ -27,6 +27,7 @@ class ModeTest :
             manageTrailingCommas = null,
             write = false,
             check = false,
+            std = false,
             debug = false,
             concurrency = 1,
             cacheLocation = null,
@@ -53,6 +54,7 @@ class ModeTest :
             manageTrailingCommas = null,
             write = true,
             check = true,
+            std = false,
             debug = false,
             concurrency = 1,
             cacheLocation = null,
@@ -79,11 +81,93 @@ class ModeTest :
             manageTrailingCommas = null,
             write = true,
             check = false,
+            std = false,
             debug = false,
             concurrency = 1,
             cacheLocation = null,
           )
         exitCode shouldBe 0
+      }
+
+      it("should accept std mode") {
+        val fs = Jimfs.newFileSystem()
+        val workingDir = fs.getPath("/project")
+        Files.createDirectories(workingDir)
+
+        val app = App(fileSystem = fs, workingDirectory = workingDir)
+
+        // Test std mode should not fail validation
+        val exitCode =
+          app.runFormatting(
+            globs = listOf("**/*"),
+            style = "meta",
+            maxWidth = 100,
+            blockIndent = null,
+            continuationIndent = null,
+            removeUnusedImports = true,
+            manageTrailingCommas = null,
+            write = false,
+            check = false,
+            std = true,
+            debug = false,
+            concurrency = 1,
+            cacheLocation = null,
+          )
+        exitCode shouldBe 0
+      }
+
+      it("should reject std with write mode") {
+        val fs = Jimfs.newFileSystem()
+        val workingDir = fs.getPath("/project")
+        Files.createDirectories(workingDir)
+
+        val app = App(fileSystem = fs, workingDirectory = workingDir)
+
+        // Test multiple modes including std should return 1
+        val exitCode =
+          app.runFormatting(
+            globs = listOf("**/*"),
+            style = "meta",
+            maxWidth = 100,
+            blockIndent = null,
+            continuationIndent = null,
+            removeUnusedImports = true,
+            manageTrailingCommas = null,
+            write = true,
+            check = false,
+            std = true,
+            debug = false,
+            concurrency = 1,
+            cacheLocation = null,
+          )
+        exitCode shouldBe 1
+      }
+
+      it("should reject std with check mode") {
+        val fs = Jimfs.newFileSystem()
+        val workingDir = fs.getPath("/project")
+        Files.createDirectories(workingDir)
+
+        val app = App(fileSystem = fs, workingDirectory = workingDir)
+
+        // Test multiple modes including std should return 1
+        val exitCode =
+          app.runFormatting(
+            globs = listOf("**/*"),
+            style = "meta",
+            maxWidth = 100,
+            blockIndent = null,
+            continuationIndent = null,
+            removeUnusedImports = true,
+            manageTrailingCommas = null,
+            write = false,
+            check = true,
+            std = true,
+            debug = false,
+            concurrency = 1,
+            cacheLocation = null,
+          )
+        exitCode shouldBe 1
       }
     }
 
@@ -183,6 +267,28 @@ class ModeTest :
       }
     }
 
+    describe("stdin mode processing") {
+      it("should handle stdin read error gracefully") {
+        val fs = Jimfs.newFileSystem()
+        val workingDir = fs.getPath("/project")
+        Files.createDirectories(workingDir)
+
+        val app = App(fileSystem = fs, workingDirectory = workingDir)
+        val formattingOptions =
+          com.facebook.ktfmt.format.FormattingOptions(
+            blockIndent = 2,
+            continuationIndent = 4,
+            manageTrailingCommas = false,
+          )
+
+        // In test environment, stdin is closed, so processStdin should return error code
+        val exitCode = app.processStdin(formattingOptions)
+
+        // Should return 1 for IO error when stdin is not available
+        exitCode shouldBe 1
+      }
+    }
+
     describe("integration scenarios with jimfs") {
       it("should respect ignore patterns during file collection and processing") {
         val fs = Jimfs.newFileSystem()
@@ -213,6 +319,7 @@ class ModeTest :
             manageTrailingCommas = null,
             write = false,
             check = true,
+            std = false,
             debug = false,
             concurrency = 1,
             cacheLocation = null,
@@ -246,6 +353,7 @@ class ModeTest :
             manageTrailingCommas = null,
             write = false,
             check = true,
+            std = false,
             debug = false,
             concurrency = 1,
             cacheLocation = null,

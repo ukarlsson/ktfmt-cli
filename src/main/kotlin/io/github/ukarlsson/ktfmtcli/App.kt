@@ -81,6 +81,8 @@ class App(
 
   private val check by option("--check").flag().help("Check if files need formatting, exit 1 if so")
 
+  private val std by option("--std").flag().help("Read from stdin and write to stdout")
+
   private val version by option("--version", "-V").flag().help("Print version information")
 
   private val debug by option("--debug").flag().help("Enable debug output with timing information")
@@ -93,7 +95,8 @@ class App(
 
   private val cacheLocation by option("--cache-location").help("Cache file location to skip unchanged files")
 
-  private val globs by argument(name = "globs", help = "Files, directories, or glob patterns to format").multiple()
+  private val globs by
+    argument(name = "globs", help = "Files, directories, or glob patterns to format (not used with --std)").multiple()
 
   private fun formatWriteOutput(result: FormattingResult.WriteResult): String {
     val output = StringBuilder()
@@ -190,6 +193,7 @@ class App(
       println("  --manage-trailing-commas: $manageTrailingCommas")
       println("  --write: $write")
       println("  --check: $check")
+      println("  --std: $std")
       println("  --debug: $debug")
       println("  --concurrency: $concurrency")
       println("  --cache-location: $cacheLocation")
@@ -206,6 +210,12 @@ class App(
     if (version) {
       printVersion()
       return
+    }
+
+    // Validate that globs are not provided with --std mode
+    if (std && (globs as List<String>).isNotEmpty()) {
+      System.err.println("Error: Cannot specify files/patterns when using --std mode")
+      exitProcess(1)
     }
 
     val actualGlobs = if ((globs as List<String>).isEmpty()) listOf("**/*") else globs
@@ -225,6 +235,7 @@ class App(
         manageTrailingCommas,
         write,
         check,
+        std,
         debug,
         concurrency,
         cacheLocation,
@@ -245,23 +256,32 @@ class App(
     manageTrailingCommas: Boolean?,
     write: Boolean,
     check: Boolean,
+    std: Boolean,
     debug: Boolean,
     concurrency: Int,
     cacheLocation: String?,
   ): Int {
     // Validate flags
-    val modeCount = listOf(write, check).count { it }
+    val modeCount = listOf(write, check, std).count { it }
     if (modeCount == 0) {
-      System.err.println("Error: Must specify one of --write or --check")
+      System.err.println("Error: Must specify one of --write, --check, or --std")
       return 1
     }
     if (modeCount > 1) {
-      System.err.println("Error: Cannot specify multiple modes (--write, --check)")
+      System.err.println("Error: Cannot specify multiple modes (--write, --check, --std)")
       return 1
     }
 
-    val (files, collectionTime) = measureTimedValue { collectFiles(workingDirectory, globs, debug) }
-    if (debug) {
+    // Skip file collection for stdin mode
+    val (files, collectionTime) =
+      if (std) {
+        emptyList<Path>() to kotlin.time.Duration.ZERO
+      } else {
+        val timedValue = measureTimedValue { collectFiles(workingDirectory, globs, debug) }
+        timedValue.value to timedValue.duration
+      }
+
+    if (debug && !std) {
       println("Debug: Collected ${files.size} files in $collectionTime")
     }
 
@@ -301,6 +321,13 @@ class App(
         }
         println(formatCheckOutput(result))
         if (result.filesNeedingFormatting.isNotEmpty() || result.failedFiles.isNotEmpty()) 1 else 0
+      }
+      std -> {
+        val (exitCode, formatTime) = measureTimedValue { processStdin(formattingOptions) }
+        if (debug) {
+          System.err.println("Debug: Formatting took $formatTime")
+        }
+        exitCode
       }
       else -> 1
     }
@@ -675,6 +702,23 @@ class App(
       cacheUpdates = updatedCache,
     )
   }
+
+  internal fun processStdin(options: FormattingOptions): Int =
+    try {
+      val input = System.`in`.bufferedReader().use { it.readText() }
+      val formatted = Formatter.format(options, input)
+      print(formatted)
+      0
+    } catch (e: com.facebook.ktfmt.format.ParseError) {
+      System.err.println("Error: Failed to parse input - ${e.message}")
+      1
+    } catch (e: java.lang.RuntimeException) {
+      System.err.println("Error: Failed to format input - ${e.message}")
+      1
+    } catch (e: java.io.IOException) {
+      System.err.println("Error: Failed to read from stdin - ${e.message}")
+      1
+    }
 
   internal fun processCheck(
     files: List<Path>,
