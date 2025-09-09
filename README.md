@@ -55,6 +55,12 @@ java -jar ktfmt-cli.jar --check
 java -jar ktfmt-cli.jar --check src/**/*.kt
 ```
 
+**Format from stdin** (for editor integrations):
+```bash
+echo "class Test{val x=1}" | java -jar ktfmt-cli.jar --std
+cat MyFile.kt | java -jar ktfmt-cli.jar --std --style=google
+```
+
 ### Command-Line Options
 
 ```
@@ -66,6 +72,7 @@ Arguments:
 Mode Options (required):
     --write                         Write formatting changes to files
     --check                         Check if files need formatting, exit 1 if so
+    --std                           Read from stdin and write to stdout
 
 Formatting Options:
     --style [meta]                  Formatting style: meta (default), google, or kotlinlang
@@ -129,6 +136,18 @@ java -jar ktfmt-cli.jar --write --style=meta --manage-trailing-commas=true
 
 # Google and kotlinlang styles enable trailing commas by default
 java -jar ktfmt-cli.jar --write --style=google
+```
+
+**Format from stdin (for editor integrations like Zed):**
+```bash
+# Basic stdin formatting
+echo "class Test{val x=1}" | java -jar ktfmt-cli.jar --std
+
+# With custom style
+cat MyFile.kt | java -jar ktfmt-cli.jar --std --style=google
+
+# With custom formatting options
+echo "fun test(){println(\"hello\")}" | java -jar ktfmt-cli.jar --std --max-width=80 --style=kotlinlang
 ```
 
 **Performance tuning:**
