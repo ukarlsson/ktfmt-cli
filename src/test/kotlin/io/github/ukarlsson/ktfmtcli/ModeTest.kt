@@ -186,6 +186,7 @@ class ModeTest :
         val files = listOf(testFile)
         val formattingOptions =
           com.facebook.ktfmt.format.FormattingOptions(
+            maxWidth = 100,
             blockIndent = 2,
             continuationIndent = 4,
             manageTrailingCommas = false,
@@ -205,6 +206,7 @@ class ModeTest :
         val app = App(fileSystem = fs, workingDirectory = workingDir)
         val formattingOptions =
           com.facebook.ktfmt.format.FormattingOptions(
+            maxWidth = 100,
             blockIndent = 2,
             continuationIndent = 4,
             manageTrailingCommas = false,
@@ -228,6 +230,7 @@ class ModeTest :
         val files = listOf(testFile)
         val formattingOptions =
           com.facebook.ktfmt.format.FormattingOptions(
+            maxWidth = 100,
             blockIndent = 2,
             continuationIndent = 4,
             manageTrailingCommas = false,
@@ -256,6 +259,7 @@ class ModeTest :
         val files = listOf(unformattedFile, formattedFile)
         val formattingOptions =
           com.facebook.ktfmt.format.FormattingOptions(
+            maxWidth = 100,
             blockIndent = 2,
             continuationIndent = 4,
             manageTrailingCommas = false,
@@ -276,6 +280,7 @@ class ModeTest :
         val app = App(fileSystem = fs, workingDirectory = workingDir)
         val formattingOptions =
           com.facebook.ktfmt.format.FormattingOptions(
+            maxWidth = 100,
             blockIndent = 2,
             continuationIndent = 4,
             manageTrailingCommas = false,

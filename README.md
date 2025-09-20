@@ -24,10 +24,10 @@ Download the latest JAR from the [Releases page](https://github.com/ukarlsson/kt
 
 ```bash
 # Download the latest release
-wget https://github.com/ukarlsson/ktfmt-cli/releases/latest/download/ktfmt-cli-0.0.7-ktfmt0.53.jar
+wget https://github.com/ukarlsson/ktfmt-cli/releases/latest/download/ktfmt-cli-0.0.9-ktfmt0.58.jar
 
 # Make it executable (optional)
-chmod +x ktfmt-cli-0.0.7-ktfmt0.53.jar
+chmod +x ktfmt-cli-0.0.9-ktfmt0.58.jar
 ```
 
 ### Build from Source
@@ -214,7 +214,7 @@ Check version:
 java -jar ktfmt-cli.jar --version
 ```
 
-Current release: **v0.0.7** (Added robust exception handling for ktfmt processing failures)
+Current release: **v0.0.9** (Updated ktfmt to version 0.58)
 
 ## Dependencies
 

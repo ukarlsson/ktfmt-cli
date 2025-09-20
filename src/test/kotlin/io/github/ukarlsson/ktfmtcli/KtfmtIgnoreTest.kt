@@ -32,14 +32,14 @@ class KtfmtIgnoreTest :
         val ignoreFile = workingDir.resolve(".ktfmtignore")
         val ignoreContent =
           """
-                # This is a comment
-                build/**
-                target/**
-                *.class
-                
-                # Another comment
-                **/generated/**
-            """
+              # This is a comment
+              build/**
+              target/**
+              *.class
+              
+              # Another comment
+              **/generated/**
+          """
             .trimIndent()
 
         Files.write(ignoreFile, ignoreContent.toByteArray())
@@ -84,13 +84,13 @@ class KtfmtIgnoreTest :
         val ignoreFile = workingDir.resolve(".ktfmtignore")
         val ignoreContent =
           """
-                # Comment 1
-                
-                # Comment 2
-                
-                
-                # Comment 3
-            """
+              # Comment 1
+              
+              # Comment 2
+              
+              
+              # Comment 3
+          """
             .trimIndent()
 
         Files.write(ignoreFile, ignoreContent.toByteArray())
@@ -110,10 +110,9 @@ class KtfmtIgnoreTest :
         val ignoreFile = workingDir.resolve(".ktfmtignore")
         val ignoreContent =
           """
-                |  build/**  
-                |	target/**
-                | *.class 
-            """
+          |  build/**  
+          |	target/**
+          | *.class """
             .trimMargin()
 
         Files.write(ignoreFile, ignoreContent.toByteArray())
@@ -141,25 +140,25 @@ class KtfmtIgnoreTest :
         val ignoreFile = workingDir.resolve(".ktfmtignore")
         val ignoreContent =
           """
-                # Build directories
-                build/**
-                target/**
-                out/**
-                
-                # Generated files
-                **/generated/**
-                **/*Generated.kt
-                
-                # Temporary files
-                *.tmp
-                *.temp
-                .DS_Store
-                
-                # IDE files
-                .idea/**
-                *.iml
-                .vscode/**
-            """
+              # Build directories
+              build/**
+              target/**
+              out/**
+              
+              # Generated files
+              **/generated/**
+              **/*Generated.kt
+              
+              # Temporary files
+              *.tmp
+              *.temp
+              .DS_Store
+              
+              # IDE files
+              .idea/**
+              *.iml
+              .vscode/**
+          """
             .trimIndent()
 
         Files.write(ignoreFile, ignoreContent.toByteArray())

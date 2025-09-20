@@ -1,8 +1,8 @@
 plugins {
-  kotlin("jvm") version "2.0.21"
+  kotlin("jvm") version "2.2.0"
   application
   id("com.github.johnrengelman.shadow") version "8.1.1"
-  id("com.ncorti.ktfmt.gradle") version "0.21.0"
+  id("com.ncorti.ktfmt.gradle") version "0.24.0"
 }
 
 repositories { mavenCentral() }
@@ -36,9 +36,7 @@ tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar> {
 
 // Pass version to compilation
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-  compilerOptions {
-    freeCompilerArgs.add("-Xjvm-default=all")
-  }
+  compilerOptions { freeCompilerArgs.add("-Xjvm-default=all") }
 }
 
 // Create version properties file
@@ -57,8 +55,7 @@ tasks.register("generateVersionProperties") {
     val fullVersionValue = inputs.properties["fullVersion"]
     val ktfmtVersionValue = inputs.properties["ktfmtVersion"]
     val cliVersionValue = inputs.properties["cliVersion"]
-    versionFile.writeText(
-        "version=$fullVersionValue\nktfmt.version=$ktfmtVersionValue\ncli.version=$cliVersionValue")
+    versionFile.writeText("version=$fullVersionValue\nktfmt.version=$ktfmtVersionValue\ncli.version=$cliVersionValue")
   }
 }
 

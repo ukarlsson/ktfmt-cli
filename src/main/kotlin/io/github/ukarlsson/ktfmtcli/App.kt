@@ -2,6 +2,7 @@ package io.github.ukarlsson.ktfmtcli
 
 import com.facebook.ktfmt.format.Formatter
 import com.facebook.ktfmt.format.FormattingOptions
+import com.facebook.ktfmt.format.TrailingCommaManagementStrategy
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.multiple
@@ -296,11 +297,13 @@ class App(
 
     val formattingOptions =
       FormattingOptions(
+        maxWidth = maxWidth,
         blockIndent = blockIndent ?: defaultBlockIndent,
         continuationIndent = continuationIndent ?: defaultContinuationIndent,
-        maxWidth = maxWidth,
+        trailingCommaManagementStrategy =
+          if (manageTrailingCommas ?: defaultTrailingCommas) TrailingCommaManagementStrategy.COMPLETE
+          else TrailingCommaManagementStrategy.NONE,
         removeUnusedImports = removeUnusedImports,
-        manageTrailingCommas = manageTrailingCommas ?: defaultTrailingCommas,
       )
 
     return when {
